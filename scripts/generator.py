@@ -12,12 +12,12 @@ INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality")
 # 获取课时数量，默认为 1
 INPUT_PERIOD_COUNT = os.environ.get("INPUT_PERIOD_COUNT", "1") 
 
-# 逻辑：优先尝试最强的 3.0 Pro，如果限流或报错，自动降级到 2.5 Pro，最后用 Flash 保底
+# 模型列表
 CANDIDATE_MODELS = [
-    "gemini-3-pro-preview",     # 【首选】最新第3代 Pro，逻辑推理与学科知识最强
-    "gemini-2.5-pro",           # 【次选】2.5 Pro，非常稳定的高质量模型
-    "gemini-2.5-flash",         # 【保底】2.5 Flash，速度快，成功率极高
-    "gemini-2.0-flash"          # 【备用】旧版标准 Flash
+    "gemini-3-pro-preview",     # 【首选】
+    "gemini-2.5-pro",           # 【次选】
+    "gemini-2.5-flash",         # 【保底】
+    "gemini-2.0-flash"          # 【备用】
 ]
 
 TOPIC_FILE = 'topics.txt'
@@ -51,77 +51,33 @@ def get_topic():
         
     return current_topic, True
 
-def generate_lesson_plan(topic):
+def generate_single_period(topic, current_p, total_p, model_hint=None):
     """
-    基于《高中化学教学环节》标准生成教案
+    生成【单个课时】的内容
+    current_p: 当前是第几课时
+    total_p: 总课时数
     """
     
-    # 解析课时数
-    try:
-        p_count = int(INPUT_PERIOD_COUNT)
-    except:
-        p_count = 1
-
-    # ✅ 核心修改：多课时结构指令
-    if p_count > 1:
-        period_instruction = f"""
-    # 🕒 多课时安排指令 (CRITICAL)
-    **本课题共需 {p_count} 个课时 完成教学。**
-    **请务必为每一个课时单独设计完整的“五大环节”。**
-    
-    输出结构必须如下所示（请严格执行）：
-
-    # 第1课时：[子课题名称]
-    ## 环节一：学习目标 (针对本课时)
-    ## 环节二：情景创设 (针对本课时)
-    ## 环节三：任务驱动教学 (针对本课时，含2-3个任务)
-    ## 环节四：课堂小结
-    ## 环节五：课堂检测 (针对本课时)
-
-    ---
-    # 第2课时：[子课题名称]
-    ## 环节一：学习目标 (针对本课时)
-    ... (重复五大环节) ...
-    ## 环节五：课堂检测
-
-    **(以此类推，直到完成所有课时)**
-    **注意：每课时时长严格限制为 40 分钟，请确保内容量适中。**
-        """
-    else:
-        period_instruction = """
-    # 🕒 课时安排：本课题为 **1课时** 教学设计。
-    **注意：本节课时长严格限制为 40 分钟。**
-        """
-
     prompt = f"""
     # Role
     你是一位深刻理解《普通高中化学课程标准》的资深教师。
 
     # Task
-    请严格按照我校规定的《高中化学教学环节》标准，为课题**《{topic}》**设计一份教学设计方案。
+    正在为课题**《{topic}》**设计教学方案。
+    **当前任务：请仅设计【第 {current_p} 课时】的详细教学内容。**
+    (本课题共 {total_p} 课时，这是其中的第 {current_p} 课时)。
 
-    {period_instruction}
+    # Structure & Requirements (必须严格包含以下五大环节)
+    请输出 Markdown 格式，标题为：# 第{current_p}课时：[请补充本课时的子课题名称]
 
-    # ⚠️ Formatting Rules (排版至关重要)
-    1. **化学式必须使用 Unicode 上下标**：为了保证在纯文本中显示准确，请务必使用特殊的Unicode字符来表示数字和电荷。
-       - **正确写法**：H₂O, SO₄²⁻, Fe³⁺, NH₄⁺, CO₂, Al³⁺
-       - **错误写法**：H2O, SO42-, Fe3+, $SO_4^2-$
-       - *提示：请确保上下标清晰，不要使用 LaTeX 代码块。*
-    2. **符号规范**：箭头用 "→"，派键写 "π键"。
-    3. **结构清晰**：使用 Markdown 的 ## 标题分层。
+    ## 环节一：学习目标 (针对本课时)
+    * **规范**：使用数字序号，叙述性句式。
 
-    # Structure & Requirements (每个课时都必须包含以下五大环节)
-    
-    ## 环节一：学习目标
-    * **数量**：1~4条，实事求是。
-    * **规范**：使用数字序号，叙述性句式（“通过...，理解...”）。
-
-    ## 环节二：情景创设
-    * **要求**：选择 生活/实验/前沿 情景之一。
-    * **目的**：引发认知冲突，明确本课时目标。
+    ## 环节二：情景创设 (针对本课时)
+    * **要求**：选择 生活/实验/前沿 情景之一，引发认知冲突。
     * **时间**：3分钟左右。
 
-    ## 环节三：任务驱动教学 (核心部分)
+    ## 环节三：任务驱动教学 (本课时的核心)
     * **逻辑**：将本课时知识拆解为 **2-3个子任务**。
     * **闭环要求**：每个任务必须包含：
        1. **[自主学习] OR [合作探究]** (二选一)
@@ -133,10 +89,11 @@ def generate_lesson_plan(topic):
 
     ## 环节五：课堂检测
     * **要求**：设计3道综合性题目（基础+提升），检测本课时成效。
-    * **注意**：题目中的化学式严格使用 Unicode 上下标。
 
-    ---
-    现在，请开始设计。如果有多课时，请务必将每个课时分开撰写，确保每个课时都是一个完整的教学闭环。
+    # ⚠️ Formatting Rules
+    1. **化学式必须使用 Unicode 上下标** (如 H₂O, Fe³⁺, SO₄²⁻)。
+    2. **不要使用 LaTeX**。
+    3. **内容要充实**：因为是单课时设计，请确保细节丰富，不仅是框架。
     """
     
     headers = {
@@ -147,45 +104,40 @@ def generate_lesson_plan(topic):
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.4, 
+            "temperature": 0.5, 
             "maxOutputTokens": 8192 
         }
     }
 
-    print(f"正在调用 AI 生成优化版教案 (Unicode | 40分钟 | 全环节闭环)...")
-    if p_count > 1:
-        print(f"🔥 模式开启：多课时生成 ({p_count} 课时)")
+    print(f"   ⏳ 正在生成第 {current_p}/{total_p} 课时...", end=" ")
+    
+    # 如果有指定的首选模型（比如上一轮成功的模型），优先用它
+    models_to_try = CANDIDATE_MODELS
+    if model_hint and model_hint in CANDIDATE_MODELS:
+        # 将成功过的模型提到最前面
+        models_to_try = [model_hint] + [m for m in CANDIDATE_MODELS if m != model_hint]
 
-    for model_name in CANDIDATE_MODELS:
-        print(f"尝试模型: {model_name} ...", end=" ")
+    for model_name in models_to_try:
+        # print(f"[{model_name}]...", end=" ")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         
         try:
             response = requests.post(url, headers=headers, json=data, timeout=120)
             
             if response.status_code == 200:
-                print("成功！✅")
+                print(f"✅ ({model_name})")
                 return response.json()['candidates'][0]['content']['parts'][0]['text'], model_name
             
-            # 限流处理
             elif response.status_code == 429:
-                print(f"⚠️ 触发限流 (429)。")
-                print(f"   ⏳ 正在冷却 60 秒...", end=" ", flush=True)
-                time.sleep(60) 
-                print(f"\n[{model_name}] 重试中...", end=" ")
+                print(f"⚠️ 429限流，冷却20秒...", end=" ")
+                time.sleep(20)
                 retry_resp = requests.post(url, headers=headers, json=data, timeout=120)
-                
                 if retry_resp.status_code == 200:
-                    print("重试成功！✅")
+                    print(f"✅ 重试成功")
                     return retry_resp.json()['candidates'][0]['content']['parts'][0]['text'], model_name
-                else:
-                    print(f"重试失败 ({retry_resp.status_code})，切换下一模型。")
             
-            else:
-                print(f"失败 ({response.status_code}) - 正在尝试列表中的下一个模型...")
-                
         except Exception as e:
-            print(f"异常: {e}")
+            print(f"Err: {e}", end=" ")
             
     return None, None
 
@@ -198,30 +150,56 @@ def main():
     if not topic:
         sys.exit(0)
         
-    print(f"📝 当前课题：{topic}")
+    # 解析课时数
+    try:
+        p_count = int(INPUT_PERIOD_COUNT)
+    except:
+        p_count = 1
+
+    print(f"📝 当前课题：{topic} | 🕒 计划生成：{p_count} 课时")
     
-    content, used_model = generate_lesson_plan(topic)
+    full_content = ""
+    last_used_model = None
     
-    if content:
+    # ================= 循环生成所有课时 =================
+    for i in range(1, p_count + 1):
+        print(f"\n--- 开始处理第 {i} 课时 ---")
+        
+        # 为了防止连续请求触发 429，每课时间隔一小会儿
+        if i > 1:
+            print("☕ 休息 10 秒以避免限流...")
+            time.sleep(10)
+
+        period_content, used_model = generate_single_period(topic, i, p_count, last_used_model)
+        
+        if period_content:
+            full_content += period_content + "\n\n---\n\n"
+            last_used_model = used_model # 记录这次成功的模型，下次优先用
+        else:
+            print(f"❌ 第 {i} 课时生成失败，流程终止。")
+            # 如果中间失败，保存已生成的部分
+            full_content += f"\n\n> ⚠️ 错误：第 {i} 课时生成失败，后续中断。\n"
+            break
+    # ===================================================
+
+    if full_content.strip():
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         date_str = datetime.now().strftime("%Y%m%d")
         source_tag = "Manual" if not is_from_file else "Auto"
         
-        # 文件名增加课时标记
-        p_count_str = os.environ.get("INPUT_PERIOD_COUNT", "1")
-        if p_count_str != "1":
-            file_name = f"{OUTPUT_DIR}/{date_str}_{source_tag}_{topic}_{p_count_str}课时.md"
+        if p_count > 1:
+            file_name = f"{OUTPUT_DIR}/{date_str}_{source_tag}_{topic}_{p_count}课时.md"
         else:
             file_name = f"{OUTPUT_DIR}/{date_str}_{source_tag}_{topic}.md"
         
         with open(file_name, 'w', encoding='utf-8') as f:
-            f.write(f"# {topic}\n\n")
-            f.write(f"> 🤖 模型：{used_model} | 📅 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')} | 🕒 课时：{p_count_str} (每课时40min)\n\n")
-            f.write(content)
+            f.write(f"# {topic} (教学设计)\n\n")
+            f.write(f"> 📅 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')} | 🕒 总课时：{p_count}\n\n")
+            f.write(full_content)
         
-        print(f"🎉 生成完成！文件位置：{file_name}")
+        print(f"\n🎉 全部完成！文件位置：{file_name}")
     else:
-        print("❌ 生成失败。所有模型均尝试失败。")
+        print("❌ 生成失败，未获得任何内容。")
         sys.exit(1)
 
 if __name__ == "__main__":
