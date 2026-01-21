@@ -92,7 +92,7 @@ jobs:
             git add generated_plans/
             git commit -m "Cleanup: Remove old lesson plans [skip ci]"
             git push
-            print("🚀 修改已推送到仓库。")
+            echo "🚀 修改已推送到仓库。"
           else
             echo "✨ 没有文件需要清理。"
           fi
