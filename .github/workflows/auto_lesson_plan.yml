@@ -1,9 +1,25 @@
-name: Auto Generate Lesson Plan (Gemini)
+name: Auto Generate Lesson Plan
 
 on:
-  workflow_dispatch:
+  # 定时触发（保持不变）
   schedule:
-    - cron: '0 22 * * *'  # 每天北京时间早上 6:00
+    - cron: '0 22 * * *'
+  
+  # 【新增】手动触发配置
+  workflow_dispatch:
+    inputs:
+      manual_topic:
+        description: '请输入要生成的课题（留空则从 topics.txt 读取）'
+        required: false
+        type: string
+      model_select:
+        description: '选择模式 (HighQuality=慢但好, Fast=快但简单)'
+        required: false
+        default: 'HighQuality'
+        type: choice
+        options:
+        - HighQuality
+        - Fast
 
 permissions:
   contents: write
@@ -19,17 +35,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'  # 保持使用新版 Python
+          python-version: '3.12'
 
-      # 【关键修改在这里】
-      # 必须安装 'google-genai' 这个包，而不是 'google-generativeai'
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install requests
+
       - name: Run Generator Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # 【新增】将用户输入传入环境变量
+          INPUT_TOPIC: ${{ inputs.manual_topic }}
+          INPUT_MODE: ${{ inputs.model_select }}
         run: python scripts/generator.py
 
       - name: Commit and Push changes
@@ -38,6 +56,5 @@ jobs:
           git config --global user.email "action@github.com"
           git add generated_plans/
           git add topics.txt
-          # 防止因为没有新文件提交而报错
-          git commit -m "Gemini generated lesson plan [skip ci]" || echo "No changes to commit"
+          git commit -m "Add lesson plan [skip ci]" || echo "No changes to commit"
           git push
