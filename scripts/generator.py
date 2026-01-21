@@ -10,13 +10,12 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 INPUT_TOPIC = os.environ.get("INPUT_TOPIC")
 INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality")
 
-# ✅ 核心修改：模型优先级列表
-# 逻辑：优先尝试最强的 3.0 Pro，如果限流或报错，自动降级到 2.5 Pro，最后用 Flash 保底
+# 模型优先级列表 (保持您觉得效果好的配置)
 CANDIDATE_MODELS = [
-    "gemini-3-pro-preview",     # 【首选】最新第3代 Pro，逻辑推理与学科知识最强
-    "gemini-2.5-pro",           # 【次选】2.5 Pro，非常稳定的高质量模型
-    "gemini-2.5-flash",         # 【保底】2.5 Flash，速度快，成功率极高
-    "gemini-2.0-flash"          # 【备用】旧版标准 Flash
+    "gemini-2.0-pro-exp-02-05",     # 【首选】目前逻辑最强的2.0 Pro实验版
+    "gemini-2.0-flash",             # 【次选】2.0 Flash 综合性能极佳
+    "gemini-2.0-flash-exp",         # 【备用】Flash 实验版
+    "gemini-1.5-pro"                # 【保底】1.5 Pro 稳定版
 ]
 
 TOPIC_FILE = 'topics.txt'
@@ -25,17 +24,14 @@ OUTPUT_DIR = 'generated_plans'
 
 def get_topic():
     """获取课题逻辑"""
-    # 1. 优先检查环境变量（手动触发）
     if INPUT_TOPIC and INPUT_TOPIC.strip():
         print(f"👉 检测到手动输入课题：{INPUT_TOPIC}")
         return INPUT_TOPIC, False
 
-    # 2. 检查文件是否存在
     if not os.path.exists(TOPIC_FILE):
         print("错误：未找到 topics.txt 文件")
         return None, False
     
-    # 3. 读取文件内容
     with open(TOPIC_FILE, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
@@ -45,7 +41,6 @@ def get_topic():
         print("任务完成：topics.txt 为空。")
         return None, False
     
-    # 4. 提取第一个课题并更新文件
     current_topic = lines[0]
     remaining_topics = lines[1:]
     
@@ -78,11 +73,12 @@ def generate_lesson_plan(topic):
     请按照以下五个环节输出 Markdown 内容：
 
     ## 环节一：学习目标
-    * **格式要求**：请使用 **1. 2. 3.** 的序号列表形式，不要使用表格。
-    * **内容规范**：参考以下模板进行撰写，将核心素养融入其中，无需单独列出素养名称：
-       1. 通过阅读教材/观察实验，了解/理解......（概念/原理）。
-       2. 通过......（具体活动），掌握......（重难点），提升......能力。
-       3. ......
+    * **数量要求**：请根据本节课知识点的实际深度和广度，**灵活确定目标数量**（通常为1~4条）。不要机械地固定为3条，**实事求是**，既不要凑数也不要遗漏。
+    * **格式要求**：使用数字序号列表。
+    * **内容规范**：采用叙述性句式，将核心素养自然融入其中。参考模板：
+       1. 通过......（具体活动/阅读），了解/理解......（概念/原理）。
+       2. 结合......（实验/情境），掌握......（重难点），提升......（学科能力）。
+       （如有需要可继续列出）
 
     ## 环节二：情景创设
     * **要求**：选择以下三种情景之一，并说明设计意图：
@@ -108,7 +104,7 @@ def generate_lesson_plan(topic):
     * **注意**：题目中的化学式也必须严格使用 Unicode 上下标 (如 Cl⁻, Na⁺)。
 
     ---
-    现在，请开始按照上述五大环节进行设计。重点关注化学式的 Unicode 格式和学习目标的叙述性写法。
+    现在，请开始按照上述五大环节进行设计。重点关注化学式的 Unicode 格式和学习目标的数量与内容匹配。
     """
     
     headers = {
@@ -116,7 +112,6 @@ def generate_lesson_plan(topic):
         'x-goog-api-key': API_KEY
     }
     
-    # 针对 Pro 模型增加了 maxOutputTokens，防止生成长教案时中断
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -134,12 +129,10 @@ def generate_lesson_plan(topic):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=120)
             
-            # 成功情况
             if response.status_code == 200:
                 print("成功！✅")
                 return response.json()['candidates'][0]['content']['parts'][0]['text'], model_name
             
-            # 限流情况 (429) - 进行一次重试
             elif response.status_code == 429:
                 print(f"⚠️ 触发限流 (429)。冷却20秒后重试...")
                 time.sleep(20)
@@ -152,38 +145,31 @@ def generate_lesson_plan(topic):
                 else:
                     print(f"重试失败 ({retry_resp.status_code})，切换下一模型。")
             
-            # 其他错误 (404, 500 等)
             else:
                 print(f"失败 ({response.status_code}) - 正在尝试列表中的下一个模型...")
                 
         except Exception as e:
             print(f"异常: {e}")
-            # 继续循环尝试下一个模型
             
     return None, None
 
 def main():
-    # 检查 API Key
     if not API_KEY:
-        print("❌ 错误：未检测到 API Key，请检查 GitHub Secrets 或环境变量设置。")
+        print("❌ 错误：未检测到 API Key")
         sys.exit(1)
 
-    # 获取课题
     topic, is_from_file = get_topic()
     if not topic:
         sys.exit(0)
         
     print(f"📝 当前课题：{topic}")
     
-    # 执行生成
     content, used_model = generate_lesson_plan(topic)
     
     if content:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         date_str = datetime.now().strftime("%Y%m%d")
         source_tag = "Manual" if not is_from_file else "Auto"
-        
-        # 文件名格式：日期_来源_课题.md
         file_name = f"{OUTPUT_DIR}/{date_str}_{source_tag}_{topic}.md"
         
         with open(file_name, 'w', encoding='utf-8') as f:
@@ -193,7 +179,7 @@ def main():
         
         print(f"🎉 生成完成！文件位置：{file_name}")
     else:
-        print("❌ 生成失败。所有模型均尝试失败，请检查 API 配额或网络连接。")
+        print("❌ 生成失败。所有模型均尝试失败。")
         sys.exit(1)
 
 if __name__ == "__main__":
