@@ -7,15 +7,14 @@ from datetime import datetime
 # 1. 基础配置
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# 2. 候选模型列表 (我们将依次尝试这些名字，直到成功)
-# 涵盖了新版、旧版、稳定版和开发版
+# 2. 候选模型列表 (根据您的诊断日志修改)
+# 注意：API 不需要 'models/' 前缀，只需要后面的名字
 CANDIDATE_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-flash-002",
-    "gemini-pro",         # 1.0 版本，保底稳如老狗
-    "gemini-1.0-pro"
+    "gemini-2.0-flash",       # 【首选】根据日志，您有 2.0 的权限，这比 1.5 强得多！
+    "gemini-2.0-flash-exp",   # 2.0 实验版
+    "gemini-flash-latest",    # 指向最新 Flash 版本的别名（通常最稳）
+    "gemini-2.5-flash",       # 您竟然有 2.5 的权限，如果能跑通将是顶级体验
+    "gemini-2.0-flash-lite"   # 极速版作为保底
 ]
 
 TOPIC_FILE = 'topics.txt'
@@ -44,33 +43,21 @@ def get_next_topic():
         
     return current_topic
 
-def debug_available_models():
-    """当所有尝试都失败时，列出当前 Key 可用的所有模型"""
-    print("\n[诊断模式] 正在查询您的 API Key 可用的模型列表...")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={API_KEY}"
-    try:
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            print("--- Google 返回的可用模型 ---")
-            for model in data.get('models', []):
-                # 只显示支持 generateContent 的模型
-                if "generateContent" in model.get('supportedGenerationMethods', []):
-                    print(f"- {model['name']}")
-            print("-----------------------------")
-            print("请从上面选择一个名称，替换代码中的模型名。")
-        else:
-            print(f"无法获取模型列表。HTTP {response.status_code}: {response.text}")
-    except Exception as e:
-        print(f"诊断请求失败: {e}")
-
 def generate_with_retry(topic):
     """尝试使用不同的模型名称生成内容"""
     
+    # 针对 Gemini 2.0 优化的提示词
     prompt = f"""
     角色：高中化学高级教师。
     任务：为课题《{topic}》写一份45分钟教案（Markdown格式）。
-    包含：教学目标、重难点、引入、过程、板书、作业。
+    
+    内容要求：
+    1. **【教学目标】** (核心素养维度)
+    2. **【教学重难点】**
+    3. **【情境引入】** (设计一个生动的生活实例或实验引入)
+    4. **【教学过程】** (分步骤设计，包含师生互动环节)
+    5. **【板书设计】** (结构图形式)
+    6. **【课后作业】**
     """
     
     headers = {
@@ -80,7 +67,9 @@ def generate_with_retry(topic):
     
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.7}
+        "generationConfig": {
+            "temperature": 0.7
+        }
     }
 
     # 循环尝试列表中的模型
@@ -102,8 +91,7 @@ def generate_with_retry(topic):
                 except Exception:
                     print("解析失败，尝试下一个...")
             else:
-                # 如果是 404 (模型未找到) 或 400 (参数错误)，就尝试下一个
-                # 如果是 429 (超限)，也可以尝试下一个
+                # 打印出失败的状态码，方便调试
                 print(f"失败 ({response.status_code})")
                 
         except Exception as e:
@@ -137,10 +125,8 @@ def main():
         
         print(f"🎉 成功生成教案！文件已保存至：{file_name}")
     else:
-        print("\n❌ 所有模型尝试均失败。")
-        # 触发诊断
-        debug_available_models()
-        # 恢复 topics.txt (把课题塞回去，免得丢了)
+        print("\n❌ 所有模型尝试均失败。请检查 API Key 额度或网络。")
+        # 恢复 topics.txt
         with open(TOPIC_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
         with open(TOPIC_FILE, 'w', encoding='utf-8') as f:
