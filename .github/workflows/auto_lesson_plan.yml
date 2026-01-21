@@ -1,0 +1,41 @@
+name: Auto Generate Lesson Plan (Gemini)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * *'  # 每天北京时间早上 6:00
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # 安装 google-generativeai
+      - name: Install dependencies
+        run: pip install google-generativeai
+
+      - name: Run Generator Script
+        env:
+          # 这里的名字必须和你在 GitHub Secrets 里设置的一样
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scripts/generator.py
+
+      - name: Commit and Push changes
+        run: |
+          git config --global user.name "Gemini Teacher"
+          git config --global user.email "action@github.com"
+          git add generated_plans/
+          git add topics.txt
+          git commit -m "Gemini generated lesson plan [skip ci]" || echo "No changes to commit"
+          git push
