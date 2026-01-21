@@ -1,14 +1,13 @@
 import os
 import sys
-from openai import OpenAI
+import requests
+import json
 from datetime import datetime
 
-# 【核心修改】：使用 OpenAI 库调用 Google Gemini
-# Google 官方提供的兼容接口地址
-client = OpenAI(
-    api_key=os.environ.get("GEMINI_API_KEY"),
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-)
+# 1. 基础配置
+API_KEY = os.environ.get("GEMINI_API_KEY")
+# 直接使用官方 REST API 的标准地址，绝对稳定
+API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 TOPIC_FILE = 'topics.txt'
 OUTPUT_DIR = 'generated_plans'
@@ -37,7 +36,7 @@ def get_next_topic():
     return current_topic
 
 def generate_lesson_plan(topic):
-    """使用通用接口生成教案"""
+    """使用原生 HTTP 请求调用 Gemini"""
     
     prompt = f"""
     角色：你是一位拥有20年经验的高中化学高级教师。
@@ -52,24 +51,52 @@ def generate_lesson_plan(topic):
     6. **【课后作业】**
     """
     
-    print(f"Gemini (Universal API) 正在为您生成课题：{topic} ...")
+    print(f"正在通过 REST API 请求生成课题：{topic} ...")
+    
+    # 构造 Gemini 原生 API 需要的 JSON 结构
+    headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': API_KEY  # 通过 Header 传递 Key，比 URL 更安全
+    }
+    
+    data = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }],
+        "generationConfig": {
+            "temperature": 0.7
+        }
+    }
     
     try:
-        response = client.chat.completions.create(
-            model="gemini-1.5-flash", # 这里直接用模型名
-            messages=[
-                {"role": "system", "content": "你是一个专业的教育专家。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        return response.choices[0].message.content
+        response = requests.post(API_URL, headers=headers, json=data, timeout=60)
+        
+        # 检查 HTTP 状态码
+        if response.status_code != 200:
+            print(f"HTTP 错误: {response.status_code}")
+            print(f"错误详情: {response.text}")
+            raise Exception("API 请求失败")
+            
+        result = response.json()
+        
+        # 解析返回的 JSON
+        # 路径通常是: candidates[0] -> content -> parts[0] -> text
+        try:
+            return result['candidates'][0]['content']['parts'][0]['text']
+        except (KeyError, IndexError):
+            print("无法解析返回结果，可能被安全拦截。")
+            print(f"原始返回: {result}")
+            raise Exception("解析失败")
+
     except Exception as e:
-        print(f"调用出错: {e}")
-        # 如果出错，为了防止 topics.txt 里的题目白白被删掉，这里可以抛出异常
+        print(f"发生异常: {e}")
         raise e
 
 def main():
+    if not API_KEY:
+        print("错误：未检测到 GEMINI_API_KEY 环境变量")
+        sys.exit(1)
+
     topic = get_next_topic()
     if not topic:
         sys.exit(0)
@@ -84,13 +111,12 @@ def main():
         
         with open(file_name, 'w', encoding='utf-8') as f:
             f.write(f"# 课题：{topic}\n\n")
-            f.write(f"> 模型：Gemini 1.5 Flash (Via OpenAI API) | 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+            f.write(f"> 生成方式：REST API (Requests) | 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
             f.write(content)
         
         print(f"成功生成教案：{file_name}")
         
-    except Exception as e:
-        print("生成失败，请检查 API Key 或网络连接。")
+    except Exception:
         sys.exit(1)
 
 if __name__ == "__main__":
