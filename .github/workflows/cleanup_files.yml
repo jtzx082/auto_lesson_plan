@@ -1,0 +1,98 @@
+name: Cleanup Old Lesson Plans (Files)
+
+on:
+  # 1. 每周一凌晨 4:00 (北京时间) 自动运行
+  schedule:
+    - cron: '0 20 * * 1'
+  
+  # 2. 手动触发 (支持自定义保留天数)
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: '保留最近多少天的教案？(输入 0 代表删除所有文件)'
+        required: true
+        default: '30'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup_files:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Execute Cleanup Script
+        env:
+          # 如果是定时运行，默认保留 60 天；如果是手动运行，使用输入值
+          RETENTION_DAYS: ${{ inputs.retention_days || '60' }}
+        run: |
+          python -c "
+          import os
+          import glob
+          from datetime import datetime, timedelta
+
+          # 获取配置
+          try:
+              days = int(os.environ['RETENTION_DAYS'])
+          except:
+              days = 60
+              
+          cutoff_date = datetime.now() - timedelta(days=days)
+          target_dir = 'generated_plans'
+          
+          print(f'🧹 清理任务开始：正在寻找 {days} 天前 (即 {cutoff_date.strftime('%Y-%m-%d')} 之前) 的文件...')
+          
+          deleted_count = 0
+
+          if not os.path.exists(target_dir):
+              print('📂 目录不存在，跳过。')
+              exit(0)
+
+          # 遍历 Markdown 文件
+          for filepath in glob.glob(f'{target_dir}/*.md'):
+              filename = os.path.basename(filepath)
+              
+              # 文件名格式通常为: 20260121_Manual_xxx.md
+              # 我们尝试提取前8位作为日期
+              try:
+                  date_part = filename.split('_')[0]
+                  # 简单的校验：必须是8位数字
+                  if len(date_part) != 8 or not date_part.isdigit():
+                      continue
+                      
+                  file_date = datetime.strptime(date_part, '%Y%m%d')
+                  
+                  # 核心判断：如果文件日期 早于 截止日期，则删除
+                  if file_date < cutoff_date:
+                      os.remove(filepath)
+                      print(f'🗑️ 已删除过期文件: {filename}')
+                      deleted_count += 1
+              except Exception as e:
+                  # 如果文件名格式不对，跳过不删，防止误删重要文件
+                  continue
+
+          print(f'✅ 清理完成。共删除了 {deleted_count} 个文件。')
+          "
+
+      - name: Commit and Push Changes
+        run: |
+          # 检查是否有文件被删除（git status 会显示 changes）
+          if [[ -n $(git status -s) ]]; then
+            git config --global user.name "Cleaner Bot"
+            git config --global user.email "action@github.com"
+            git add generated_plans/
+            git commit -m "Cleanup: Remove old lesson plans [skip ci]"
+            git push
+            print("🚀 修改已推送到仓库。")
+          else
+            echo "✨ 没有文件需要清理。"
+          fi
