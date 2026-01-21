@@ -7,14 +7,16 @@ from datetime import datetime
 
 # ================= 配置区 =================
 API_KEY = os.environ.get("GEMINI_API_KEY")
-INPUT_TOPIC = os.environ.get("INPUT_TOPIC") 
+INPUT_TOPIC = os.environ.get("INPUT_TOPIC")
 INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality")
 
+# ✅ 核心修改：模型优先级列表
+# 逻辑：优先尝试最强的 3.0 Pro，如果限流或报错，自动降级到 2.5 Pro，最后用 Flash 保底
 CANDIDATE_MODELS = [
-    "gemini-2.0-flash",       
-    "gemini-2.0-flash-exp",   
-    "gemini-flash-latest",    
-    "gemini-2.0-pro-exp-02-05" 
+    "gemini-3-pro-preview",     # 【首选】最新第3代 Pro，逻辑推理与学科知识最强
+    "gemini-2.5-pro",           # 【次选】2.5 Pro，非常稳定的高质量模型
+    "gemini-2.5-flash",         # 【保底】2.5 Flash，速度快，成功率极高
+    "gemini-2.0-flash"          # 【备用】旧版标准 Flash
 ]
 
 TOPIC_FILE = 'topics.txt'
@@ -23,14 +25,17 @@ OUTPUT_DIR = 'generated_plans'
 
 def get_topic():
     """获取课题逻辑"""
+    # 1. 优先检查环境变量（手动触发）
     if INPUT_TOPIC and INPUT_TOPIC.strip():
         print(f"👉 检测到手动输入课题：{INPUT_TOPIC}")
         return INPUT_TOPIC, False
 
+    # 2. 检查文件是否存在
     if not os.path.exists(TOPIC_FILE):
         print("错误：未找到 topics.txt 文件")
         return None, False
     
+    # 3. 读取文件内容
     with open(TOPIC_FILE, 'r', encoding='utf-8') as f:
         lines = f.readlines()
     
@@ -40,6 +45,7 @@ def get_topic():
         print("任务完成：topics.txt 为空。")
         return None, False
     
+    # 4. 提取第一个课题并更新文件
     current_topic = lines[0]
     remaining_topics = lines[1:]
     
@@ -80,19 +86,19 @@ def generate_lesson_plan(topic):
 
     ## 环节二：情景创设
     * **要求**：选择以下三种情景之一，并说明设计意图：
-        1. **生活情境** (如铁生锈、胃药原理)
-        2. **实验情境** (趣味实验、视觉冲击)
-        3. **前沿情境** (新能源、新材料)
+       1. **生活情境** (如铁生锈、胃药原理)
+       2. **实验情境** (趣味实验、视觉冲击)
+       3. **前沿情境** (新能源、新材料)
     * **目的**：引发认知冲突，明确本课目标。
 
     ## 环节三：任务驱动教学 (核心部分)
     * **逻辑**：将本课核心知识拆解为 **2-3个核心任务 (子任务)**。
     * **每个任务**必须包含以下三个步骤 (严禁遗漏)：
-        1. **自主学习 OR 合作探究** (二选一)：
-           - *简单概念* -> 选择 **[自主学习]** (设计学习单问题)。
-           - *难点/探究* -> 选择 **[合作探究]** (设计开放性问题)。
-        2. **归纳小结**：梳理该任务的知识脉络。
-        3. **评价训练**：设计1-2道具体的检测题。
+       1. **自主学习 OR 合作探究** (二选一)：
+          - *简单概念* -> 选择 **[自主学习]** (设计学习单问题)。
+          - *难点/探究* -> 选择 **[合作探究]** (设计开放性问题)。
+       2. **归纳小结**：梳理该任务的知识脉络。
+       3. **评价训练**：设计1-2道具体的检测题。
 
     ## 环节四：课堂小结
     * **要求**：构建本节课的完整知识体系/思维导图结构。
@@ -110,11 +116,12 @@ def generate_lesson_plan(topic):
         'x-goog-api-key': API_KEY
     }
     
+    # 针对 Pro 模型增加了 maxOutputTokens，防止生成长教案时中断
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.4, 
-            "maxOutputTokens": 8192
+            "maxOutputTokens": 8192 
         }
     }
 
@@ -127,45 +134,56 @@ def generate_lesson_plan(topic):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=120)
             
+            # 成功情况
             if response.status_code == 200:
                 print("成功！✅")
                 return response.json()['candidates'][0]['content']['parts'][0]['text'], model_name
             
+            # 限流情况 (429) - 进行一次重试
             elif response.status_code == 429:
-                print(f"⚠️ 触发限流 (429)。冷却20秒...")
+                print(f"⚠️ 触发限流 (429)。冷却20秒后重试...")
                 time.sleep(20)
-                print("重试中...", end=" ")
+                print(f"[{model_name}] 重试中...", end=" ")
                 retry_resp = requests.post(url, headers=headers, json=data, timeout=120)
+                
                 if retry_resp.status_code == 200:
                     print("重试成功！✅")
                     return retry_resp.json()['candidates'][0]['content']['parts'][0]['text'], model_name
                 else:
-                    print(f"重试失败 ({retry_resp.status_code})")
+                    print(f"重试失败 ({retry_resp.status_code})，切换下一模型。")
+            
+            # 其他错误 (404, 500 等)
             else:
-                print(f"失败 ({response.status_code})")
+                print(f"失败 ({response.status_code}) - 正在尝试列表中的下一个模型...")
                 
         except Exception as e:
             print(f"异常: {e}")
+            # 继续循环尝试下一个模型
             
     return None, None
 
 def main():
+    # 检查 API Key
     if not API_KEY:
-        print("❌ 错误：未检测到 API Key")
+        print("❌ 错误：未检测到 API Key，请检查 GitHub Secrets 或环境变量设置。")
         sys.exit(1)
 
+    # 获取课题
     topic, is_from_file = get_topic()
     if not topic:
         sys.exit(0)
         
     print(f"📝 当前课题：{topic}")
     
+    # 执行生成
     content, used_model = generate_lesson_plan(topic)
     
     if content:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         date_str = datetime.now().strftime("%Y%m%d")
         source_tag = "Manual" if not is_from_file else "Auto"
+        
+        # 文件名格式：日期_来源_课题.md
         file_name = f"{OUTPUT_DIR}/{date_str}_{source_tag}_{topic}.md"
         
         with open(file_name, 'w', encoding='utf-8') as f:
@@ -175,7 +193,7 @@ def main():
         
         print(f"🎉 生成完成！文件位置：{file_name}")
     else:
-        print("❌ 生成失败。")
+        print("❌ 生成失败。所有模型均尝试失败，请检查 API 配额或网络连接。")
         sys.exit(1)
 
 if __name__ == "__main__":
