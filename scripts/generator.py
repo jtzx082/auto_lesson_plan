@@ -7,16 +7,14 @@ from datetime import datetime
 
 # ================= 配置区 =================
 API_KEY = os.environ.get("GEMINI_API_KEY")
-INPUT_TOPIC = os.environ.get("INPUT_TOPIC") # 获取手动输入
-INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality") # 获取模式
+INPUT_TOPIC = os.environ.get("INPUT_TOPIC") 
+INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality")
 
-# 根据您的诊断日志，这是您的Key真正支持的“豪华阵容”
-# 既然 1.5 都是 404，我们直接用 2.0 和 latest
 CANDIDATE_MODELS = [
-    "gemini-2.0-flash",       # 【首选】诊断日志显示您有这个权限
-    "gemini-2.0-flash-exp",   # 备选
-    "gemini-flash-latest",    # 之前成功过的兜底王
-    "gemini-2.0-pro-exp-02-05" # 尝试一下 2.0 Pro（如果存在）
+    "gemini-2.0-flash",       
+    "gemini-2.0-flash-exp",   
+    "gemini-flash-latest",    
+    "gemini-2.0-pro-exp-02-05" 
 ]
 
 TOPIC_FILE = 'topics.txt'
@@ -55,12 +53,25 @@ def generate_lesson_plan(topic):
     生成教案（包含重试机制）
     """
     
+    # === 优化后的 Prompt：增加了“禁止 LaTeX”的指令 ===
     prompt = f"""
     # Role
-    你是一位拥有25年教龄的**特级高中化学教师**，擅长"启发式教学"。
+    你是一位拥有25年教龄的**特级高中化学教师**。
 
     # Task
     请为课题**《{topic}》**设计一份深度教学设计方案（45分钟）。
+
+    # ⚠️ Formatting Rules (至关重要)
+    1. **绝对禁止使用 LaTeX 格式**：请不要使用美元符号($)，不要使用 \\text{{}} 或 \\ce{{}}。
+    2. **化学式写法**：请直接使用普通文本。例如：
+       - 写 "H2O" 而不是 "$\text{{H}}_2\text{{O}}$"
+       - 写 "CO2" 而不是 "$\text{{CO}}_2$"
+       - 写 "Fe3+" (表示离子)
+    3. **特殊符号**：
+       - 派键：写 "π键"
+       - 箭头：写 "->" 或 "→"
+       - 杂化：写 "sp2杂化" 或 "sp3杂化"
+    4. **整体要求**：确保输出的内容在普通的记事本(Notepad)中也能直接阅读，没有任何代码符号。
 
     # Content Sections
     请严格按照以下结构输出 Markdown：
@@ -108,27 +119,22 @@ def generate_lesson_plan(topic):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=120)
             
-            # === 成功情况 ===
             if response.status_code == 200:
                 print("成功！✅")
                 return response.json()['candidates'][0]['content']['parts'][0]['text'], model_name
             
-            # === 限流情况 (429) ===
             elif response.status_code == 429:
                 print(f"⚠️ 触发限流 (429)。")
-                print("   ⏳ 正在冷却 20 秒后重试该模型...", end=" ", flush=True)
-                time.sleep(20) # 暂停20秒
-                
-                # 重试同一次请求
+                print("   ⏳ 正在冷却 20 秒后重试...", end=" ", flush=True)
+                time.sleep(20)
                 print("重试中...", end=" ")
                 retry_resp = requests.post(url, headers=headers, json=data, timeout=120)
                 if retry_resp.status_code == 200:
                     print("重试成功！✅")
                     return retry_resp.json()['candidates'][0]['content']['parts'][0]['text'], model_name
                 else:
-                    print(f"重试失败 ({retry_resp.status_code})，尝试下一个模型。")
+                    print(f"重试失败 ({retry_resp.status_code})")
 
-            # === 其他错误 (404等) ===
             else:
                 print(f"失败 ({response.status_code})")
                 
@@ -163,7 +169,7 @@ def main():
         
         print(f"🎉 生成完成！文件位置：{file_name}")
     else:
-        print("❌ 所有尝试均失败。请检查 API 配额是否已耗尽。")
+        print("❌ 所有尝试均失败。")
         sys.exit(1)
 
 if __name__ == "__main__":
