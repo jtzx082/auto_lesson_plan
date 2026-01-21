@@ -19,15 +19,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
+          python-version: '3.12'  # 保持使用新版 Python
 
-      # 安装 google-generativeai
+      # 【关键修改在这里】
+      # 必须安装 'google-genai' 这个包，而不是 'google-generativeai'
       - name: Install dependencies
-        run: pip install google-generativeai
+        run: |
+          pip install --upgrade pip
+          pip install google-genai
 
       - name: Run Generator Script
         env:
-          # 这里的名字必须和你在 GitHub Secrets 里设置的一样
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scripts/generator.py
 
@@ -37,5 +39,6 @@ jobs:
           git config --global user.email "action@github.com"
           git add generated_plans/
           git add topics.txt
+          # 防止因为没有新文件提交而报错
           git commit -m "Gemini generated lesson plan [skip ci]" || echo "No changes to commit"
           git push
