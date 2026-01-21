@@ -1,14 +1,11 @@
 import os
 import sys
-import google.generativeai as genai # 引入 Google 库
+from google import genai # 注意这里是新的导入方式
 from datetime import datetime
 
-# 1. 配置 Gemini
-# 从环境变量读取 Key
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-
-# 建议使用 gemini-1.5-flash，速度快且免费额度高
-model = genai.GenerativeModel('gemini-1.5-flash')
+# 1. 配置 Client
+# 新版 SDK 直接初始化 Client
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 TOPIC_FILE = 'topics.txt'
 OUTPUT_DIR = 'generated_plans'
@@ -37,7 +34,7 @@ def get_next_topic():
     return current_topic
 
 def generate_lesson_plan(topic):
-    """构建提示词并调用 Gemini"""
+    """使用新版 SDK 调用 Gemini"""
     
     prompt = f"""
     角色：你是一位拥有20年经验的高中化学高级教师。
@@ -50,16 +47,17 @@ def generate_lesson_plan(topic):
     4. **【教学过程】** (分步骤设计，包含师生互动环节)
     5. **【板书设计】** (结构图形式)
     6. **【课后作业】**
-    
-    请直接输出内容，不要包含“好的，这是您的教案”等客套话。
     """
     
-    print(f"Gemini 正在为您生成课题：{topic} ...")
+    print(f"Gemini (New SDK) 正在为您生成课题：{topic} ...")
     
-    # Gemini 的调用方法非常简单
-    response = model.generate_content(prompt)
+    # 新版调用方式：client.models.generate_content
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt
+    )
     
-    # 返回生成的文本
+    # 获取文本的方式变更为 .text (如果没有被拦截)
     return response.text
 
 def main():
@@ -76,7 +74,7 @@ def main():
     
     with open(file_name, 'w', encoding='utf-8') as f:
         f.write(f"# 课题：{topic}\n\n")
-        f.write(f"> 模型：Gemini 1.5 Flash | 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
+        f.write(f"> 模型：Gemini 1.5 Flash (New SDK) | 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n")
         f.write(content)
     
     print(f"成功生成教案：{file_name}")
