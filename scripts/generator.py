@@ -12,10 +12,10 @@ INPUT_MODE = os.environ.get("INPUT_MODE", "HighQuality")
 
 # 模型优先级列表 (保持您觉得效果好的配置)
 CANDIDATE_MODELS = [
-    "gemini-2.0-pro-exp-02-05",     # 【首选】目前逻辑最强的2.0 Pro实验版
-    "gemini-2.0-flash",             # 【次选】2.0 Flash 综合性能极佳
-    "gemini-2.0-flash-exp",         # 【备用】Flash 实验版
-    "gemini-1.5-pro"                # 【保底】1.5 Pro 稳定版
+    "gemini-3-pro-preview",     # 【首选】最新第3代 Pro，逻辑推理与学科知识最强
+    "gemini-2.5-pro",           # 【次选】2.5 Pro，非常稳定的高质量模型
+    "gemini-2.5-flash",         # 【保底】2.5 Flash，速度快，成功率极高
+    "gemini-2.0-flash"          # 【备用】旧版标准 Flash
 ]
 
 TOPIC_FILE = 'topics.txt'
