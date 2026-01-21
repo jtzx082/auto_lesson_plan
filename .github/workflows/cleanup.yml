@@ -1,0 +1,29 @@
+name: Cleanup Old Workflow Runs
+
+on:
+  # 1. 定时触发：每天北京时间凌晨 4:00 运行 (UTC 20:00)
+  schedule:
+    - cron: '0 20 * * *'
+  # 2. 手动触发：允许你在 Actions 页面手动点击运行
+  workflow_dispatch:
+
+jobs:
+  del_runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # ⚠️ 必须权限：允许删除 Action 运行记录
+      contents: read
+
+    steps:
+      - name: Delete completed workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          
+          # ⚙️ 配置保留策略 (请根据需要调整)
+          retain_days: 3          # 保留最近 3 天的记录
+          keep_minimum_runs: 5    # 无论天数如何，至少保留最近 5 条记录 (方便查看最新状态)
+          
+          # 可选：只清理特定的工作流 (如果不填，默认清理仓库内所有工作流记录)
+          # delete_workflow_pattern: "Generate Lesson Plan"
