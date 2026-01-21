@@ -1,16 +1,22 @@
 name: Auto Generate Lesson Plan
 
 on:
-  # 定时触发（保持不变）
+  # 定时触发（保持不变，默认生成1课时）
   schedule:
     - cron: '0 22 * * *'
   
-  # 【新增】手动触发配置
+  # 【手动触发配置】
   workflow_dispatch:
     inputs:
       manual_topic:
         description: '请输入要生成的课题（留空则从 topics.txt 读取）'
         required: false
+        type: string
+      # ✅ 新增：课时数量设置
+      period_count:
+        description: '课时安排 (输入数字, 如 1, 2, 3...)'
+        required: false
+        default: '1'
         type: string
       model_select:
         description: '选择模式 (HighQuality=慢但好, Fast=快但简单)'
@@ -45,9 +51,10 @@ jobs:
       - name: Run Generator Script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # 【新增】将用户输入传入环境变量
           INPUT_TOPIC: ${{ inputs.manual_topic }}
           INPUT_MODE: ${{ inputs.model_select }}
+          # ✅ 新增：将课时数量传入环境变量
+          INPUT_PERIOD_COUNT: ${{ inputs.period_count }}
         run: python scripts/generator.py
 
       - name: Commit and Push changes
